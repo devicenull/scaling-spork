@@ -1,4 +1,4 @@
-This is what I wrote to deal with failover between my fiber ($) and cell ($$) connections.
+This is what I wrote to deal with failover between my fiber and cell connections.
 
 The general rule is be connected to fiber whenever possible (referred to as "cable", because my
 old cable ISP is providing fiber now, and the association is hard to break).  Failover to cell
