@@ -2,6 +2,7 @@ import ipaddress
 import json
 import re
 import subprocess
+import requests
 
 from datetime import datetime
 
@@ -77,3 +78,21 @@ def parse_mmcli():
         'routers': ipdata['bearer']['ipv4-config']['gateway'],
         'subnet-mask': ipdata['bearer']['ipv4-config']['prefix'],
     }
+
+# the peplink dhcp server is bad and should feel bad about it
+def get_peplink_info(config):
+    baseurl = 'http://192.168.51.1/cgi-bin/MANGA/api.cgi'
+    session = requests.Session()
+    r = session.post(baseurl, json = {'username': config.get('main', 'peplinkuser'), 'password':config.get('main', 'peplinkpass'), 'func': 'login'})
+
+    r = session.get(baseurl + '?func=status.wan.connection')
+    js = r.json()
+
+    return {
+        'ip': js['response']['2']['ip'],
+        'gateway': js['response']['2']['gateway'],
+        'mask': js['response']['2']['mask'],
+        'dns': js['response']['2']['dns'],
+        'stats': js['response']['2']['cellular']['rat'][0]['band'],
+    }
+
