@@ -172,12 +172,12 @@ if args.cron:
     l.debug("cable lease %s" % cable_lease)
     l.debug("cell lease %s" % cell_lease)
     cable_rt = get_route_table(CABLE_TABLE)
-    if (len(cable_rt) == 0 and len(cable_lease) > 0) or (cable_lease['fixed-address'] != cable_rt['source_ip']):
+    if len(cable_lease) > 0 and (len(cable_rt) == 0 or (cable_lease['fixed-address'] != cable_rt['source_ip'])):
         net = ipaddress.ip_network('%s/%s' % (cable_lease['fixed-address'], cable_lease['subnet-mask']), strict=False)
         create_route_table(CABLE_TABLE, CABLE_INTERFACE, cable_lease['fixed-address'], cable_lease['routers'], str(net))
 
     cell_rt = get_route_table(CELL_TABLE)
-    if (len(cell_rt) == 0 and len(cell_lease) > 0) or (cell_lease['ip'] != cell_rt['source_ip']):
+    if len(cell_lease) > 0 and (len(cell_rt) == 0 or (cell_lease['ip'] != cell_rt['source_ip'])):
         configure_interface(CELL_INTERFACE, cell_lease['ip'], cell_lease['mask'])
         net = ipaddress.ip_network('%s/%s' % (cell_lease['ip'], cell_lease['mask']), strict=False)
         create_route_table(CELL_TABLE, CELL_INTERFACE, cell_lease['ip'], cell_lease['gateway'], str(net))
@@ -197,7 +197,7 @@ if args.cron:
             sendsms(config, 'Reloaded cable interface, fixed internet')
         else:
             l.info('Cable connection failed, failing over')
-            set_default_route(CELL_INTERFACE, cell_lease['routers'])
+            set_default_route(CELL_INTERFACE, cell_lease['gateway'])
             sendsms(config, 'Cable interface down, failing over')
     elif get_primary_interface() == CABLE_INTERFACE and not want_interface_reload:
         # in this case, let's send some traffic over the cell interface so it doesn't time out on us
