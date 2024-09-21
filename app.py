@@ -185,7 +185,7 @@ if args.cron:
     want_interface_reload = check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_TABLE, CABLE_INTERFACE) or check_external_ips(CABLE_TABLE, CABLE_INTERFACE)
     if (get_primary_interface() == CABLE_INTERFACE or get_primary_interface() == '') and want_interface_reload:
         l.info('Reloading %s' % CABLE_INTERFACE)
-        subprocess.call('ifdown enp1s0; ifup enp1s0', shell=True)
+        subprocess.call('/usr/sbin/ifdown enp1s0; /usr/sbin/ifup enp1s0', shell=True)
 
         cable_lease = get_valid_lease(CABLE_INTERFACE)
         net = ipaddress.ip_network('%s/%s' % (cable_lease['fixed-address'], cable_lease['subnet-mask']), strict=False)
@@ -210,7 +210,7 @@ if args.cron:
         sendsms(config, 'Cable connection has come back, failing back over')
     elif get_primary_interface() == CELL_INTERFACE and want_interface_reload:
         l.info('Lets try reloading cable again and hope for the best')
-        subprocess.call('ifdown enp1s0; ifup enp1s0', shell=True)
+        subprocess.call('/usr/sbin/ifdown enp1s0; /usr/sbin/ifup enp1s0', shell=True)
 
     # record stats to mysql - do this last so we don't really have to care about timeouts
     db = MySQLdb.connect(host=config.get('database', 'host'), user=config.get('database', 'user'), password=config.get('database', 'password'), database=config.get('database', 'database'))

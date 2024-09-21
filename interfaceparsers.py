@@ -88,11 +88,14 @@ def get_peplink_info(config):
     r = session.get(baseurl + '?func=status.wan.connection')
     js = r.json()
 
-    return {
-        'ip': js['response']['2']['ip'],
-        'gateway': js['response']['2']['gateway'],
-        'mask': js['response']['2']['mask'],
-        'dns': js['response']['2']['dns'],
-        'stats': js['response']['2']['cellular']['rat'][0]['band'],
-    }
+    try:
+        return {
+            'ip': js['response']['2']['ip'],
+            'gateway': js['response']['2']['gateway'],
+            'mask': js['response']['2']['mask'],
+            'dns': js['response']['2']['dns'],
+            'stats': js['response']['2']['cellular']['rat'][0]['band'],
+        }
+    except KeyError:
+        return {}
 
