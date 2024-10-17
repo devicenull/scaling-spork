@@ -38,6 +38,11 @@ l.basicConfig(handlers=[
     format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
     datefmt='%Y-%m-%d %H:%M:%S')
 
+def exception_handler(extype, exval, extrace):
+    l.error("unhandled exception", exc_info=(extype,exval,extrace))
+
+sys.excepthook = exception_handler
+
 # checks should return True if an interface reload is required
 
 def check_interface_ip(interface):
