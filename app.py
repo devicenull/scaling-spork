@@ -51,12 +51,14 @@ def check_interface_ip(interface):
 
 def check_gateway_pings(table, interface):
     # [{"dst":"default","gateway":"192.168.5.1","dev":"eno1","flags":["onlink"]}]
-    ipdata = json.loads(subprocess.check_output('ip -j -4 route show default table %s' % table, shell=True))
+    ipdata_raw = subprocess.check_output('ip -j -4 route show default table %s 2>&1' % table, shell=True)
+    ipdata = json.loads(ipdata_raw)
     try:
         gateway = ipdata[0]['gateway']
     except IndexError:
         l.info('unable to determine gateway ip on table %s' % table)
-        l.info(ipdata)
+        debug_raw = subprocess.check_output('ip -4 route show table %s' % table, shell=True)
+        l.info(debug_raw)
         return True
     try:
         subprocess.check_output('ping -c 2 %s -m %s -I %s 2>&1' % (gateway, table, interface), shell=True)
@@ -194,6 +196,7 @@ if args.cron:
         is_interface_fixed = not (check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_TABLE, CABLE_INTERFACE) or check_external_ips(CABLE_TABLE, CABLE_INTERFACE))
         if is_interface_fixed:
             l.info('Reload completed, cable now works')
+            set_default_route(CABLE_INTERFACE, cable_lease['gateway'])
             sendsms(config, 'Reloaded cable interface, fixed internet')
         else:
             l.info('Cable connection failed, failing over')
@@ -213,11 +216,12 @@ if args.cron:
         subprocess.call('/usr/sbin/ifdown enp1s0; /usr/sbin/ifup enp1s0', shell=True)
 
     # record stats to mysql - do this last so we don't really have to care about timeouts
-    db = MySQLdb.connect(host=config.get('database', 'host'), user=config.get('database', 'user'), password=config.get('database', 'password'), database=config.get('database', 'database'))
-    stats = cell_lease['stats'][0]
-    cursor = db.cursor()
-    cursor.execute("insert into cell_stats(date, channel, rssi, sinr, rsrp, rsrq) values(NOW(), %s, %s, %s, %s, %s)", (stats['channel'], stats['signal']['rssi'], stats['signal']['sinr'], stats['signal']['rsrp'], stats['signal']['rsrq']))
-    db.commit()
+    if 'stats' in cell_lease:
+        db = MySQLdb.connect(host=config.get('database', 'host'), user=config.get('database', 'user'), password=config.get('database', 'password'), database=config.get('database', 'database'))
+        stats = cell_lease['stats'][0]
+        cursor = db.cursor()
+        cursor.execute("insert into cell_stats(date, channel, rssi, sinr, rsrp, rsrq) values(NOW(), %s, %s, %s, %s, %s)", (stats['channel'], stats['signal']['rssi'], stats['signal']['sinr'], stats['signal']['rsrp'], stats['signal']['rsrq']))
+        db.commit()
 
 
 elif args.failover:
