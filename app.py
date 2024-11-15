@@ -196,12 +196,13 @@ if args.cron:
 
         cable_lease = get_valid_lease(CABLE_INTERFACE)
         net = ipaddress.ip_network('%s/%s' % (cable_lease['fixed-address'], cable_lease['subnet-mask']), strict=False)
+        configure_interface(CABLE_INTERFACE, cable_lease['fixed-address'], cable_lease['subnet-mask'])
         create_route_table(CABLE_TABLE, CABLE_INTERFACE, cable_lease['fixed-address'], cable_lease['routers'], str(net))
 
         is_interface_fixed = not (check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_TABLE, CABLE_INTERFACE) or check_external_ips(CABLE_TABLE, CABLE_INTERFACE))
         if is_interface_fixed:
             l.info('Reload completed, cable now works')
-            set_default_route(CABLE_INTERFACE, cable_lease['gateway'])
+            set_default_route(CABLE_INTERFACE, cable_lease['routers'])
             sendsms(config, 'Reloaded cable interface, fixed internet')
         else:
             l.info('Cable connection failed, failing over')
