@@ -12,14 +12,12 @@ import MySQLdb
 import requests
 
 from configparser import ConfigParser
-from interfaceparsers import parse_dhclient, get_route_table, get_peplink_info
+from interfaceparsers import parse_dhclient, get_route_table, get_peplink_info, parse_udhcpc
 from logging.handlers import RotatingFileHandler
 
 # table IDs from /etc/iproute2/rt_tables
 CABLE_INTERFACE="enp1s0"
-CABLE_TABLE="30"
 CELL_INTERFACE="vlan23"
-CELL_TABLE="40"
 
 """
 Things to disable on cell:
@@ -54,43 +52,43 @@ def check_interface_ip(interface):
     return False
 
 
-def check_gateway_pings(table, interface):
+def check_gateway_pings(interface):
     # [{"dst":"default","gateway":"192.168.5.1","dev":"eno1","flags":["onlink"]}]
-    ipdata_raw = subprocess.check_output('ip -j -4 route show default table %s 2>&1' % table, shell=True)
+    ipdata_raw = subprocess.check_output('ip -j -4 route show default oif %s 2>&1' % interface, shell=True)
     ipdata = json.loads(ipdata_raw)
     try:
         gateway = ipdata[0]['gateway']
     except IndexError:
-        l.info('unable to determine gateway ip on table %s' % table)
-        debug_raw = subprocess.check_output('ip -4 route show table %s' % table, shell=True)
+        l.info('unable to determine gateway ip on interface %s' % interface)
+        debug_raw = subprocess.check_output('ip -4 route show oif %s' % interface, shell=True)
         l.info(debug_raw)
         return True
     try:
-        subprocess.check_output('ping -c 2 %s -m %s -I %s 2>&1' % (gateway, table, interface), shell=True)
+        subprocess.check_output('ping -c 2 %s -I %s 2>&1' % (gateway, interface), shell=True)
     except subprocess.CalledProcessError as e:
-        l.info('gateway %s fails to ping via table %s' % (gateway, table))
+        l.info('gateway %s fails to ping via interface %s' % (gateway, interface))
         l.info(e.output.decode('ascii').strip())
         return True
 
     return False
 
 
-def check_external_ips(table,interface):
+def check_external_ips(interface):
     googleping = False
     try:
-        subprocess.check_output('ping -c 2 8.8.8.8 -m %s -I %s 2>&1' % (table, interface), shell=True)
+        subprocess.check_output('ping -c 2 8.8.8.8 -I %s 2>&1' % (interface), shell=True)
         googleping = True
     except subprocess.CalledProcessError as e:
-        l.info('8888 fails to ping via table %s' % table)
+        l.info('8888 fails to ping via interface %s' % interface)
         l.info(e.output.decode('ascii').strip())
 
     if not googleping:
         wpcomping = False
         try:
-            subprocess.check_output('ping -c 2 192.0.78.9 -m %s -I %s 2>&1' % (table, interface), shell=True)
+            subprocess.check_output('ping -c 2 192.0.78.9 -I %s 2>&1' % (interface), shell=True)
             wpcomping = True
         except subprocess.CalledProcessError as e:
-            l.info('wpcom failed to ping via table %s' % table)
+            l.info('wpcom failed to ping via interface %s' % interface)
             l.info(e.output.decode('ascii').strip())
 
     # only reload if both fail to ping
@@ -98,53 +96,22 @@ def check_external_ips(table,interface):
 
 
 def get_primary_interface():
-    ipdata = json.loads(subprocess.check_output('ip -j -4 route show default', shell=True))
+    ipdata = json.loads(subprocess.check_output('ip -j -4 route get 8.8.8.8', shell=True))
     try:
         return ipdata[0]['dev']
     except IndexError:
         return ''
 
 
-def configure_interface(interface, ip, netmask):
-    l.info('configuring %s with %s/%s' % (interface, ip, netmask))
-    commands = [
-        'ip -4 addr flush dev %s' % interface,
-        'ip -4 addr add %s/%s dev %s' % (ip, netmask, interface)
-    ]
-    for cur in commands:
-        l.debug(cur)
-        subprocess.call(cur, shell=True)
-
-
-# If the table doesn't exist, or the IPs have changed, blow it away & start again
-def create_route_table(table_id, interface, source_ip, default_gateway, subnet):
-    if source_ip == '' or default_gateway == '':
-        l.error('invalid source ip or default gateway, cant build routing table')
-        return
-
-    l.info('generating route table for %s' % table_id)
-    commands = [
-        'ip route flush table %s' % table_id,
-        'ip route add %s scope link dev %s src %s table %s' % (subnet, interface, source_ip, table_id),
-        'ip route add default via %s dev %s src %s table %s' % (default_gateway, interface, source_ip, table_id),
-    ]
-    for cur in commands:
-        l.debug(cur)
-        subprocess.call(cur, shell=True)
-
 
 def set_default_route(interface, default_gateway):
+    pass
+    # FIXME
     l.info('setting default gateway to %s via %s' % (default_gateway, interface))
+    # /e/n/i hates setting this for some reason
+    subprocess.call('sysctl net.ipv4.conf.%s.forwarding=1' % interface, shell=True)
     subprocess.call('ip route del default', shell=True)
     subprocess.call('ip route add default via %s dev %s' % (default_gateway, interface), shell=True)
-
-def get_valid_lease(interface):
-    for cur in parse_dhclient('/var/lib/dhcp/dhclient.%s.leases' % interface):
-        if cur['interface'] == interface and not cur['expired']:
-            l.info('found lease for %s, addr %s, expires %s' % (interface, cur['fixed-address'], cur['expires'])) 
-            return cur
-
-    return {}
 
 def sendsms(config, message):
     r = requests.post('https://piscatawaynjmeetings.com/sendsms.php', data={'token':config.get('main', 'smskey'), 'message':message})
@@ -174,32 +141,20 @@ parser.add_argument('--failover', help='Manually fail over to an interface (expe
 args = parser.parse_args()
 
 if args.cron:
-    cable_lease = get_valid_lease(CABLE_INTERFACE)
-    cell_lease = get_peplink_info(config)
+    #cable_lease = get_valid_lease(CABLE_INTERFACE)
+    cable_lease = parse_udhcpc(CABLE_INTERFACE)
+    cell_lease = parse_udhcpc(CELL_INTERFACE)
     l.debug("cable lease %s" % cable_lease)
     l.debug("cell lease %s" % cell_lease)
-    cable_rt = get_route_table(CABLE_TABLE)
-    if len(cable_lease) > 0 and (len(cable_rt) == 0 or (cable_lease['fixed-address'] != cable_rt['source_ip'])):
-        net = ipaddress.ip_network('%s/%s' % (cable_lease['fixed-address'], cable_lease['subnet-mask']), strict=False)
-        create_route_table(CABLE_TABLE, CABLE_INTERFACE, cable_lease['fixed-address'], cable_lease['routers'], str(net))
-
-    cell_rt = get_route_table(CELL_TABLE)
-    if len(cell_lease) > 0 and (len(cell_rt) == 0 or (cell_lease['ip'] != cell_rt['source_ip'])):
-        configure_interface(CELL_INTERFACE, cell_lease['ip'], cell_lease['mask'])
-        net = ipaddress.ip_network('%s/%s' % (cell_lease['ip'], cell_lease['mask']), strict=False)
-        create_route_table(CELL_TABLE, CELL_INTERFACE, cell_lease['ip'], cell_lease['gateway'], str(net))
-
-    want_interface_reload = check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_TABLE, CABLE_INTERFACE) or check_external_ips(CABLE_TABLE, CABLE_INTERFACE)
+    want_interface_reload = check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_INTERFACE) or check_external_ips(CABLE_INTERFACE)
     if (get_primary_interface() == CABLE_INTERFACE or get_primary_interface() == '') and want_interface_reload:
         l.info('Reloading %s' % CABLE_INTERFACE)
         subprocess.call('/usr/sbin/ifdown enp1s0; /usr/sbin/ifup enp1s0', shell=True)
 
         cable_lease = get_valid_lease(CABLE_INTERFACE)
         net = ipaddress.ip_network('%s/%s' % (cable_lease['fixed-address'], cable_lease['subnet-mask']), strict=False)
-        configure_interface(CABLE_INTERFACE, cable_lease['fixed-address'], cable_lease['subnet-mask'])
-        create_route_table(CABLE_TABLE, CABLE_INTERFACE, cable_lease['fixed-address'], cable_lease['routers'], str(net))
 
-        is_interface_fixed = not (check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_TABLE, CABLE_INTERFACE) or check_external_ips(CABLE_TABLE, CABLE_INTERFACE))
+        is_interface_fixed = not (check_interface_ip(CABLE_INTERFACE) or check_gateway_pings(CABLE_INTERFACE) or check_external_ips(CABLE_INTERFACE))
         if is_interface_fixed:
             l.info('Reload completed, cable now works')
             set_default_route(CABLE_INTERFACE, cable_lease['routers'])
@@ -222,15 +177,18 @@ if args.cron:
         subprocess.call('/usr/sbin/ifdown enp1s0; /usr/sbin/ifup enp1s0', shell=True)
 
     # record stats to mysql - do this last so we don't really have to care about timeouts
-    if 'stats' in cell_lease:
+    cell_stats = get_peplink_info(config)
+    if 'stats' in cell_stats:
         db = MySQLdb.connect(host=config.get('database', 'host'), user=config.get('database', 'user'), password=config.get('database', 'password'), database=config.get('database', 'database'))
-        stats = cell_lease['stats'][0]
+        stats = cell_stats['stats'][0]
         cursor = db.cursor()
         cursor.execute("insert into cell_stats(date, channel, rssi, sinr, rsrp, rsrq) values(NOW(), %s, %s, %s, %s, %s)", (stats['channel'], stats['signal']['rssi'], stats['signal']['sinr'], stats['signal']['rsrp'], stats['signal']['rsrq']))
         db.commit()
 
 
 elif args.failover:
+    pass
+    #FIXME
     if args.failover == 'cable':
         rt = get_route_table(CABLE_TABLE)
         interface = CABLE_INTERFACE

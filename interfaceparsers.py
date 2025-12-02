@@ -31,6 +31,24 @@ def parse_dhclient(filename):
         leases.append(leasedata)
     return leases
 
+# echo "$1: IP=$ip/$subnet router=$router domain=\"$domain\" dns=\"$dns\" lease=$lease" > /var/run/$1.udhcpc
+def parse_udhcpc(interface):
+    leasedata = {}
+    try:
+        with open('/var/run/%s.udhcpc' % interface, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # bound: IP=69.126.128.155/255.255.252.0 router=69.126.128.1 domain="" dns="65.19.96.252 65.19.96.253" lease=87909
+                if matches := re.match('.*IP=([0-9\\.]+)/([0-9\\.]+) router=([0-9\\.]+)', line):
+                    leasedata['fixed-address'] = matches[1]
+                    leasedata['subnet-mask'] = matches[2]
+                    leasedata['routers'] = matches[3]
+                    leasedata['expired'] = False
+    except FileNotFoundError:
+        pass
+
+    return leasedata
+
 def get_route_table(table_id):
     try:
         ipdata = json.loads(subprocess.check_output('ip -j -4 route show table %s 2>/dev/null' % table_id, shell=True))
